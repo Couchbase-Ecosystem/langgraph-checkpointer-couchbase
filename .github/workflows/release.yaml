@@ -1,0 +1,45 @@
+name: Publish Package to PyPI
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+  
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install Dependencies
+        run: pip install -e .
+
+      - name: Install Hatch
+        run: pip install hatch
+
+      - name: Hatch build
+        run: hatch build
+
+      - name: Get hatch version
+        id: hatch_version_step
+        run: echo "VERSION=$(hatch version)" >> $GITHUB_OUTPUT
+
+      - name: Publish release distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.hatch_version_step.outputs.VERSION }} 
+          draft: false
+          prerelease: false
