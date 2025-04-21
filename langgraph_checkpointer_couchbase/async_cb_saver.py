@@ -331,8 +331,9 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
         for idx, (channel, value) in enumerate(writes):
             upsert_key = f"{thread_id}::{checkpoint_ns}::{checkpoint_id}::{task_id}::{idx}"
             type_, serialized_value = self.serde.dumps_typed(value)
-            if serialized_value:
-                serialized_value = _encode_binary(serialized_value)
+            
+            serialized_value = _encode_binary(serialized_value)
+            
             doc = {
                 "thread_id": thread_id,
                 "checkpoint_ns": checkpoint_ns,

@@ -374,8 +374,8 @@ class CouchbaseSaver(BaseCheckpointSaver):
             type_, serialized_value = self.serde.dumps_typed(value)
             
             # Encode the serialized value to base64 string
-            if serialized_value:
-                serialized_value = _encode_binary(serialized_value)
+           
+            serialized_value = _encode_binary(serialized_value)
 
             doc = {
                 "thread_id": thread_id,
