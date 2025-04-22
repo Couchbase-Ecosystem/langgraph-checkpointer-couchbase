@@ -114,7 +114,7 @@ class CouchbaseSaver(BaseCheckpointSaver):
 
         collection_manager = self.bucket.collections()
         try:
-            collection_manager.create_collection(self.checkpoints_collection_name, self.scope_name)
+            collection_manager.create_collection(self.scope_name, self.checkpoints_collection_name)
         except CollectionAlreadyExistsException as _:
             pass
         except Exception as e:
@@ -124,7 +124,7 @@ class CouchbaseSaver(BaseCheckpointSaver):
             self.checkpoints_collection = self.bucket.scope(self.scope_name).collection(self.checkpoints_collection_name)
         
         try:
-            collection_manager.create_collection(self.checkpoint_writes_collection_name, self.scope_name)
+            collection_manager.create_collection(self.scope_name, self.checkpoint_writes_collection_name)
         except CollectionAlreadyExistsException as _:
             pass
         except Exception as e:
