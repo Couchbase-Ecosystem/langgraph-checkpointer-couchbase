@@ -7,7 +7,6 @@ from couchbase.cluster import Cluster
 from couchbase.bucket import Bucket
 from couchbase.auth import PasswordAuthenticator
 from couchbase.options import ClusterOptions, QueryOptions, UpsertOptions
-from couchbase.management.collections import CollectionSpec
 from couchbase.exceptions import CollectionAlreadyExistsException
 
 from langgraph.checkpoint.base import (
@@ -115,9 +114,8 @@ class CouchbaseSaver(BaseCheckpointSaver):
 
         collection_manager = self.bucket.collections()
         try:
-            collection_spec = CollectionSpec(collection_name=self.checkpoints_collection_name, scope_name=self.scope_name)
-            collection_manager.create_collection(collection_spec)
-        except CollectionAlreadyExistsException as caee:
+            collection_manager.create_collection(self.checkpoints_collection_name, self.scope_name)
+        except CollectionAlreadyExistsException as _:
             pass
         except Exception as e:
             print(f"Error creating collections: {e}")
@@ -126,9 +124,8 @@ class CouchbaseSaver(BaseCheckpointSaver):
             self.checkpoints_collection = self.bucket.scope(self.scope_name).collection(self.checkpoints_collection_name)
         
         try:
-            collection_spec = CollectionSpec(collection_name=self.checkpoint_writes_collection_name, scope_name=self.scope_name)
-            collection_manager.create_collection(collection_spec)
-        except CollectionAlreadyExistsException as caee:
+            collection_manager.create_collection(self.checkpoint_writes_collection_name, self.scope_name)
+        except CollectionAlreadyExistsException as _:
             pass
         except Exception as e:
             print(f"Error creating collections: {e}")
