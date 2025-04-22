@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "langgraph-checkpointer-couchbase"
-version = "1.0.2"
+version = "1.0.3"
 description = ''
 readme = "README.md"
 requires-python = ">=3.8"
@@ -33,9 +33,9 @@ dependencies = [
 ]
 
 [project.urls]
-Documentation = "https://github.com/Lokesh Goel/langgraph-checkpointer-couchbase#readme"
-Issues = "https://github.com/Lokesh Goel/langgraph-checkpointer-couchbase/issues"
-Source = "https://github.com/Lokesh Goel/langgraph-checkpointer-couchbase"
+Documentation = "https://github.com/couchbase-ecosystem/langgraph-checkpointer-couchbase#readme"
+Issues = "https://github.com/couchbase-ecosystem/langgraph-checkpointer-couchbase/issues"
+Source = "https://github.com/couchbase-ecosystem/langgraph-checkpointer-couchbase"
 
 [tool.hatch.version]
 path = "src/langgraph_checkpointer_couchbase/__about__.py"

@@ -129,7 +129,6 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
             query = f'SELECT * FROM {self.bucket_name}.{self.scope_name}.`{self.checkpoints_collection_name}` WHERE thread_id = $1 AND checkpoint_ns = $2 ORDER BY checkpoint_id DESC LIMIT 1'
             query_params = [thread_id, checkpoint_ns]
 
-        print(query)
         result = self.cluster.query(query, QueryOptions(positional_parameters=query_params))
 
         async for row in result:
@@ -148,7 +147,6 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
 
             pending_writes = []
             async for write_doc in serialized_writes_result:
-                print(f"write_doc: {write_doc}")  # Debugging statement to log the contents of write_doc
                 checkpoint_writes = write_doc.get(self.checkpoint_writes_collection_name, {})
                 if "task_id" not in checkpoint_writes:
                     print("Error: 'task_id' is not present in checkpoint_writes")
@@ -293,7 +291,7 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
             "checkpoint_ns": checkpoint_ns,
             "checkpoint_id": checkpoint_id,
         }
-        # print(json.dumps(doc))
+
         upsert_key = f"{thread_id}::{checkpoint_ns}::{checkpoint_id}"
 
         collection = self.bucket.scope(self.scope_name).collection(self.checkpoints_collection_name)
