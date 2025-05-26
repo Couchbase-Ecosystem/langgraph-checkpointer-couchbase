@@ -123,10 +123,10 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
         checkpoint_id = get_checkpoint_id(config)
 
         if checkpoint_id:
-            query = f'SELECT * FROM {self.bucket_name}.{self.scope_name}.`{self.checkpoints_collection_name}` WHERE thread_id = $1 AND checkpoint_ns = $2 AND checkpoint_id = $3 ORDER BY checkpoint_id DESC LIMIT 1'
+            query = f'SELECT * FROM `{self.bucket_name}`.`{self.scope_name}`.`{self.checkpoints_collection_name}` WHERE thread_id = $1 AND checkpoint_ns = $2 AND checkpoint_id = $3 ORDER BY checkpoint_id DESC LIMIT 1'
             query_params = [thread_id, checkpoint_ns, checkpoint_id]
         else:
-            query = f'SELECT * FROM {self.bucket_name}.{self.scope_name}.`{self.checkpoints_collection_name}` WHERE thread_id = $1 AND checkpoint_ns = $2 ORDER BY checkpoint_id DESC LIMIT 1'
+            query = f'SELECT * FROM `{self.bucket_name}`.`{self.scope_name}`.`{self.checkpoints_collection_name}` WHERE thread_id = $1 AND checkpoint_ns = $2 ORDER BY checkpoint_id DESC LIMIT 1'
             query_params = [thread_id, checkpoint_ns]
 
         result = self.cluster.query(query, QueryOptions(positional_parameters=query_params))
@@ -140,7 +140,7 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
             }
             checkpoint = self.serde.loads_typed((doc["type"], _decode_binary(doc["checkpoint"])))
 
-            serialized_writes_query = f'SELECT * FROM {self.bucket_name}.{self.scope_name}.`{self.checkpoint_writes_collection_name}` WHERE thread_id = $1 AND checkpoint_ns = $2 AND checkpoint_id = $3'
+            serialized_writes_query = f'SELECT * FROM `{self.bucket_name}`.`{self.scope_name}`.`{self.checkpoint_writes_collection_name}` WHERE thread_id = $1 AND checkpoint_ns = $2 AND checkpoint_id = $3'
             serialized_writes_params = [thread_id, checkpoint_ns, doc["checkpoint_id"] or ""]
             
             serialized_writes_result = self.cluster.query(serialized_writes_query, QueryOptions(positional_parameters=serialized_writes_params))
@@ -200,7 +200,7 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
             AsyncIterator[CheckpointTuple]: An asynchronous iterator of checkpoint tuples.
         """
 
-        query = f"SELECT * FROM {self.bucket_name}.{self.scope_name}.`{self.checkpoints_collection_name}` WHERE 1=1"
+        query = f"SELECT * FROM `{self.bucket_name}`.`{self.scope_name}`.`{self.checkpoints_collection_name}` WHERE 1=1"
         query_params = []
 
         if config is not None:
