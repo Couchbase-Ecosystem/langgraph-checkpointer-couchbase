@@ -4,7 +4,7 @@ from langchain_core.runnables import ConfigurableField
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
-from langgraph_checkpoint_couchbase import CouchbaseSaver, AsyncCouchbaseSaver
+from langgraph_checkpointer_couchbase import CouchbaseSaver, AsyncCouchbaseSaver
 from dotenv import load_dotenv
 import os
 load_dotenv()

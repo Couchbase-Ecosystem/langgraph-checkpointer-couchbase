@@ -68,58 +68,72 @@ with CouchbaseSaver.from_conn_info(
         bucket_name=os.getenv("CB_BUCKET") or "test",
         scope_name=os.getenv("CB_SCOPE") or "langgraph",
     ) as checkpointer:
-        # Create the agent with checkpointing
-        graph = create_react_agent(model, tools=tools, checkpointer=checkpointer)
-        
-        # Configure with a unique thread ID
-        config = {"configurable": {"thread_id": "1"}}
-        
-        # Run the agent
-        res = graph.invoke({"messages": [("human", "what's the weather in sf")]}, config)
-        
-        # Retrieve checkpoints
-        latest_checkpoint = checkpointer.get(config)
-        latest_checkpoint_tuple = checkpointer.get_tuple(config)
-        checkpoint_tuples = list(checkpointer.list(config))
+    # Create the agent with checkpointing
+    graph = create_react_agent(model, tools=tools, checkpointer=checkpointer)
+    
+    # Configure with a unique thread ID
+    config = {"configurable": {"thread_id": "1"}}
+    
+    # Run the agent
+    res = graph.invoke({"messages": [("human", "what's the weather in sf")]}, config)
+    
+    # Retrieve checkpoints
+    latest_checkpoint = checkpointer.get(config)
+    latest_checkpoint_tuple = checkpointer.get_tuple(config)
+    checkpoint_tuples = list(checkpointer.list(config))
 
-        print(latest_checkpoint)
-        print(latest_checkpoint_tuple)
-        print(checkpoint_tuples)
+    print(latest_checkpoint)
+    print(latest_checkpoint_tuple)
+    print(checkpoint_tuples)
 ```
 
 ### Asynchronous Usage
 
 ```python
 import os
+from acouchbase.cluster import Cluster as ACluster
+from couchbase.auth import PasswordAuthenticator
+from couchbase.options import ClusterOptions
 from langgraph_checkpointer_couchbase import AsyncCouchbaseSaver
 from langgraph.graph import create_react_agent
 
-async with AsyncCouchbaseSaver.from_conn_info(
-        cb_conn_str=os.getenv("CB_CLUSTER") or "couchbase://localhost",
-        cb_username=os.getenv("CB_USERNAME") or "Administrator",
-        cb_password=os.getenv("CB_PASSWORD") or "password",
-        bucket_name=os.getenv("CB_BUCKET") or "test",
-        scope_name=os.getenv("CB_SCOPE") or "langgraph",
+auth = PasswordAuthenticator(
+    os.getenv("CB_USERNAME") or "Administrator",
+    os.getenv("CB_PASSWORD") or "password",
+)
+options = ClusterOptions(auth)
+cluster = await ACluster.connect(os.getenv("CB_CLUSTER") or "couchbase://localhost", options)
+
+bucket_name = os.getenv("CB_BUCKET") or "test"
+scope_name = os.getenv("CB_SCOPE") or "langgraph"
+
+async with AsyncCouchbaseSaver.from_cluster(
+        cluster=cluster,
+        bucket_name=bucket_name,
+        scope_name=scope_name,
     ) as checkpointer:
-        # Create the agent with checkpointing
-        graph = create_react_agent(model, tools=tools, checkpointer=checkpointer)
-        
-        # Configure with a unique thread ID
-        config = {"configurable": {"thread_id": "2"}}
-        
-        # Run the agent asynchronously
-        res = await graph.ainvoke(
-            {"messages": [("human", "what's the weather in nyc")]}, config
-        )
+    # Create the agent with checkpointing
+    graph = create_react_agent(model, tools=tools, checkpointer=checkpointer)
+    
+    # Configure with a unique thread ID
+    config = {"configurable": {"thread_id": "2"}}
+    
+    # Run the agent asynchronously
+    res = await graph.ainvoke(
+        {"messages": [("human", "what's the weather in nyc")]}, config
+    )
 
-        # Retrieve checkpoints asynchronously
-        latest_checkpoint = await checkpointer.aget(config)
-        latest_checkpoint_tuple = await checkpointer.aget_tuple(config)
-        checkpoint_tuples = [c async for c in checkpointer.alist(config)]
+    # Retrieve checkpoints asynchronously
+    latest_checkpoint = await checkpointer.aget(config)
+    latest_checkpoint_tuple = await checkpointer.aget_tuple(config)
+    checkpoint_tuples = [c async for c in checkpointer.alist(config)]
 
-        print(latest_checkpoint)
-        print(latest_checkpoint_tuple)
-        print(checkpoint_tuples)
+    print(latest_checkpoint)
+    print(latest_checkpoint_tuple)
+    print(checkpoint_tuples)
+
+# Close the cluster when done
+await cluster.close()
 ```
 
 ## Configuration Options

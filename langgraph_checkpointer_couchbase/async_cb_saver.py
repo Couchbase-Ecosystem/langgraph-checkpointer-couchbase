@@ -1,12 +1,14 @@
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from typing import Any, AsyncIterator, Dict, Optional, Sequence, Tuple
+import logging
 
 from langchain_core.runnables import RunnableConfig
 from acouchbase.cluster import Cluster as ACluster
 from acouchbase.bucket import Bucket as ABucket
 from couchbase.auth import PasswordAuthenticator
 from couchbase.options import ClusterOptions, QueryOptions, UpsertOptions
+from couchbase.exceptions import CollectionAlreadyExistsException
 
 from langgraph.checkpoint.base import (
     BaseCheckpointSaver,
@@ -17,6 +19,8 @@ from langgraph.checkpoint.base import (
     get_checkpoint_id,
 )
 from .utils import _encode_binary, _decode_binary
+
+logger = logging.getLogger(__name__)
 
 class AsyncCouchbaseSaver(BaseCheckpointSaver):
     """A checkpoint saver that stores checkpoints in a Couchbase database."""
@@ -35,8 +39,34 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
         self.cluster = cluster
         self.bucket_name = bucket_name
         self.scope_name = scope_name
+        self.bucket = self.cluster.bucket(bucket_name)
+        self.scope = self.bucket.scope(scope_name)
         self.checkpoints_collection_name = checkpoints_collection_name
         self.checkpoint_writes_collection_name = checkpoint_writes_collection_name
+
+    async def create_collections(self):
+        """Create collections in the Couchbase bucket if they do not exist."""
+
+        collection_manager = self.bucket.collections()
+        try:
+            await collection_manager.create_collection(self.scope_name, self.checkpoints_collection_name)
+        except CollectionAlreadyExistsException as _:
+            pass
+        except Exception as e:
+            logger.exception("Error creating collections")
+            raise e
+        finally:
+            self.checkpoints_collection =  self.bucket.scope(self.scope_name).collection(self.checkpoints_collection_name)
+        
+        try:
+            await collection_manager.create_collection(self.scope_name, self.checkpoint_writes_collection_name)
+        except CollectionAlreadyExistsException as _:
+            pass
+        except Exception as e:
+            logger.exception("Error creating collections")
+            raise e
+        finally:
+            self.checkpoint_writes_collection = self.bucket.scope(self.scope_name).collection(self.checkpoint_writes_collection_name)
 
     @classmethod
     @asynccontextmanager
@@ -69,14 +99,24 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
             cls.bucket_name = bucket_name
             cls.scope_name = scope_name
 
-            saver = AsyncCouchbaseSaver(cluster, bucket_name, scope_name, checkpoints_collection_name, checkpoint_writes_collection_name)
-            cls.bucket = cluster.bucket(bucket_name)
-            await cls.bucket.on_connect()
+            bucket = cluster.bucket(bucket_name)
+            await bucket.on_connect()
+
+            saver = AsyncCouchbaseSaver(
+                cluster,
+                bucket_name,
+                scope_name,
+                checkpoints_collection_name,
+                checkpoint_writes_collection_name,
+            )
+
+            await saver.create_collections()
             
             yield saver
         finally:
             if cluster:
                 await cluster.close()
+
 
     @classmethod
     @asynccontextmanager
@@ -98,9 +138,18 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
             AsyncCouchbaseSaver: An instance of the AsyncCouchbaseSaver
         """        
         
-        saver = AsyncCouchbaseSaver(cluster, bucket_name, scope_name, checkpoints_collection_name, checkpoint_writes_collection_name)
-        cls.bucket = cluster.bucket(bucket_name)
-        await cls.bucket.on_connect()
+        bucket = cluster.bucket(bucket_name)
+        await bucket.on_connect()
+
+        saver = AsyncCouchbaseSaver(
+            cluster,
+            bucket_name,
+            scope_name,
+            checkpoints_collection_name,
+            checkpoint_writes_collection_name,
+        )
+
+        await saver.create_collections()
         
         yield saver
 
@@ -149,7 +198,7 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
             async for write_doc in serialized_writes_result:
                 checkpoint_writes = write_doc.get(self.checkpoint_writes_collection_name, {})
                 if "task_id" not in checkpoint_writes:
-                    print("Error: 'task_id' is not present in checkpoint_writes")
+                    logger.warning("'task_id' is not present in checkpoint_writes")
                 else:
                     pending_writes.append(
                         (
@@ -294,6 +343,8 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
 
         upsert_key = f"{thread_id}::{checkpoint_ns}::{checkpoint_id}"
 
+        # ensure bucket connected (idempotent)
+        await self.bucket.on_connect()
         collection = self.bucket.scope(self.scope_name).collection(self.checkpoints_collection_name)
         await collection.upsert(upsert_key, (doc), UpsertOptions(timeout=timedelta(seconds=5)))
 
@@ -324,6 +375,7 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
         checkpoint_ns = config["configurable"]["checkpoint_ns"]
         checkpoint_id = config["configurable"]["checkpoint_id"]
 
+        await self.bucket.on_connect()
         collection = self.bucket.scope(self.scope_name).collection(self.checkpoint_writes_collection_name)
 
         for idx, (channel, value) in enumerate(writes):
