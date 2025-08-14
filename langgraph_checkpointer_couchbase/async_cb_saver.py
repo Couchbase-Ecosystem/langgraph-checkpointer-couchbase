@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from typing import Any, AsyncIterator, Dict, Optional, Sequence, Tuple
+import logging
 
 from langchain_core.runnables import RunnableConfig
 from acouchbase.cluster import Cluster as ACluster
@@ -18,6 +19,8 @@ from langgraph.checkpoint.base import (
     get_checkpoint_id,
 )
 from .utils import _encode_binary, _decode_binary
+
+logger = logging.getLogger(__name__)
 
 class AsyncCouchbaseSaver(BaseCheckpointSaver):
     """A checkpoint saver that stores checkpoints in a Couchbase database."""
@@ -50,7 +53,7 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
         except CollectionAlreadyExistsException as _:
             pass
         except Exception as e:
-            print(f"Error creating collections: {e}")
+            logger.exception("Error creating collections")
             raise e
         finally:
             self.checkpoints_collection =  self.bucket.scope(self.scope_name).collection(self.checkpoints_collection_name)
@@ -60,7 +63,7 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
         except CollectionAlreadyExistsException as _:
             pass
         except Exception as e:
-            print(f"Error creating collections: {e}")
+            logger.exception("Error creating collections")
             raise e
         finally:
             self.checkpoint_writes_collection = self.bucket.scope(self.scope_name).collection(self.checkpoint_writes_collection_name)
@@ -195,7 +198,7 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
             async for write_doc in serialized_writes_result:
                 checkpoint_writes = write_doc.get(self.checkpoint_writes_collection_name, {})
                 if "task_id" not in checkpoint_writes:
-                    print("Error: 'task_id' is not present in checkpoint_writes")
+                    logger.warning("'task_id' is not present in checkpoint_writes")
                 else:
                     pending_writes.append(
                         (
