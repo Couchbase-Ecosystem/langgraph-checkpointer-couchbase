@@ -197,8 +197,8 @@ class CouchbaseSaver(BaseCheckpointSaver):
                     )
 
             # Decode and deserialize metadata
-            metadata = _decode_binary(doc["metadata"])
-            metadata = self.serde.loads(metadata)
+            metadata_data = _decode_binary(doc["metadata"])
+            metadata = self.serde.loads_typed((doc.get("metadata_type", "json"), metadata_data))
 
             return CheckpointTuple(
                 {"configurable": config_values},
@@ -277,7 +277,7 @@ class CouchbaseSaver(BaseCheckpointSaver):
                     }
                 },
                 checkpoint,
-                self.serde.loads(_decode_binary(doc["metadata"])),
+                self.serde.loads_typed((doc.get("metadata_type", "json"), _decode_binary(doc["metadata"]))),
                 (
                     {
                         "configurable": {
@@ -322,15 +322,15 @@ class CouchbaseSaver(BaseCheckpointSaver):
             serialized_checkpoint = _encode_binary(serialized_checkpoint)
             
         # Serialize and encode metadata
-        metadata_bytes = self.serde.dumps(metadata)
-        if metadata_bytes:
-            metadata = _encode_binary(metadata_bytes)
+        metadata_type, metadata_bytes = self.serde.dumps_typed(metadata)
+        serialized_metadata = _encode_binary(metadata_bytes) if metadata_bytes else None
         
         doc = {
             "parent_checkpoint_id": config["configurable"].get("checkpoint_id"),
             "type": type_,
             "checkpoint": serialized_checkpoint,
-            "metadata": metadata,
+            "metadata": serialized_metadata,
+            "metadata_type": metadata_type,
             "thread_id" : thread_id,
             "checkpoint_ns": checkpoint_ns,
             "checkpoint_id": checkpoint_id,
