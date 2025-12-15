@@ -78,10 +78,6 @@ class CouchbaseSaver(BaseCheckpointSaver):
             options = ClusterOptions(auth)
             cluster = Cluster(cb_conn_str, options)
             cluster.wait_until_ready(timedelta(seconds=5))
-            
-            cls.cluster = cluster
-            cls.bucket_name = bucket_name
-            cls.scope_name = scope_name
 
             saver = CouchbaseSaver(cluster, bucket_name, scope_name, checkpoints_collection_name, checkpoint_writes_collection_name)
 

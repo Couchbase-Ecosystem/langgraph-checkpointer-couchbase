@@ -94,10 +94,6 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
             auth = PasswordAuthenticator(cb_username, cb_password)
             options = ClusterOptions(auth)
             cluster = await ACluster.connect(cb_conn_str, options)
-            
-            cls.cluster = cluster
-            cls.bucket_name = bucket_name
-            cls.scope_name = scope_name
 
             bucket = cluster.bucket(bucket_name)
             await bucket.on_connect()
