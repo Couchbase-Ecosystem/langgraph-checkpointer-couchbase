@@ -227,6 +227,8 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
                 pending_writes,
             )
 
+        return None
+
     async def alist(
             self,
             config: Optional[RunnableConfig],

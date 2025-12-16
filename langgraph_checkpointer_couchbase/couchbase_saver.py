@@ -219,6 +219,8 @@ class CouchbaseSaver(BaseCheckpointSaver):
                 pending_writes,
             )
 
+        return None
+
     def list(
             self,
             config: Optional[RunnableConfig],
