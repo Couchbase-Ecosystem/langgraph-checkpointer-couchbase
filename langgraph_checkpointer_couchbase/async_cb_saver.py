@@ -22,6 +22,11 @@ from .utils import _encode_binary, _decode_binary
 
 logger = logging.getLogger(__name__)
 
+# Default timeout for database operations
+DEFAULT_TIMEOUT = timedelta(seconds=5)
+# Default serialization type for metadata (for backward compatibility)
+DEFAULT_METADATA_TYPE = "json"
+
 class AsyncCouchbaseSaver(BaseCheckpointSaver):
     """A checkpoint saver that stores checkpoints in a Couchbase database."""
 
@@ -207,7 +212,7 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
             return CheckpointTuple(
                 {"configurable": config_values},
                 checkpoint,
-                self.serde.loads_typed((doc.get("metadata_type", "json"), _decode_binary(doc["metadata"]))),
+                self.serde.loads_typed((doc.get("metadata_type", DEFAULT_METADATA_TYPE), _decode_binary(doc["metadata"]))),
                 (
                     {
                         "configurable": {
@@ -281,7 +286,7 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
                     }
                 },
                 checkpoint,
-                self.serde.loads_typed((doc.get("metadata_type", "json"), _decode_binary(doc["metadata"]))),
+                self.serde.loads_typed((doc.get("metadata_type", DEFAULT_METADATA_TYPE), _decode_binary(doc["metadata"]))),
                 (
                     {
                         "configurable": {
@@ -343,7 +348,7 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
         # ensure bucket connected (idempotent)
         await self.bucket.on_connect()
         collection = self.bucket.scope(self.scope_name).collection(self.checkpoints_collection_name)
-        await collection.upsert(upsert_key, (doc), UpsertOptions(timeout=timedelta(seconds=5)))
+        await collection.upsert(upsert_key, (doc), UpsertOptions(timeout=DEFAULT_TIMEOUT))
 
         return {
             "configurable": {
@@ -391,4 +396,4 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
                 "type": type_,
                 "value": serialized_value,
             }
-            await collection.upsert(upsert_key, (doc), UpsertOptions(timeout=timedelta(seconds=5)))
+            await collection.upsert(upsert_key, (doc), UpsertOptions(timeout=DEFAULT_TIMEOUT))

@@ -22,6 +22,11 @@ from langgraph.checkpoint.base import (
 from .utils import _encode_binary, _decode_binary
 
 logger = logging.getLogger(__name__)
+
+# Default timeout for database operations
+DEFAULT_TIMEOUT = timedelta(seconds=5)
+# Default serialization type for metadata (for backward compatibility)
+DEFAULT_METADATA_TYPE = "json"
 class CouchbaseSaver(BaseCheckpointSaver):
     """A checkpoint saver that stores checkpoints in a Couchbase database.
     
@@ -77,7 +82,7 @@ class CouchbaseSaver(BaseCheckpointSaver):
             auth = PasswordAuthenticator(cb_username, cb_password)
             options = ClusterOptions(auth)
             cluster = Cluster(cb_conn_str, options)
-            cluster.wait_until_ready(timedelta(seconds=5))
+            cluster.wait_until_ready(DEFAULT_TIMEOUT)
 
             saver = CouchbaseSaver(cluster, bucket_name, scope_name, checkpoints_collection_name, checkpoint_writes_collection_name)
 
@@ -194,7 +199,7 @@ class CouchbaseSaver(BaseCheckpointSaver):
 
             # Decode and deserialize metadata
             metadata_data = _decode_binary(doc["metadata"])
-            metadata = self.serde.loads_typed((doc.get("metadata_type", "json"), metadata_data))
+            metadata = self.serde.loads_typed((doc.get("metadata_type", DEFAULT_METADATA_TYPE), metadata_data))
 
             return CheckpointTuple(
                 {"configurable": config_values},
@@ -273,7 +278,7 @@ class CouchbaseSaver(BaseCheckpointSaver):
                     }
                 },
                 checkpoint,
-                self.serde.loads_typed((doc.get("metadata_type", "json"), _decode_binary(doc["metadata"]))),
+                self.serde.loads_typed((doc.get("metadata_type", DEFAULT_METADATA_TYPE), _decode_binary(doc["metadata"]))),
                 (
                     {
                         "configurable": {
@@ -334,7 +339,7 @@ class CouchbaseSaver(BaseCheckpointSaver):
         upsert_key = f"{thread_id}::{checkpoint_ns}::{checkpoint_id}"
         
         collection = self.checkpoints_collection
-        collection.upsert(upsert_key, (doc), UpsertOptions(timeout=timedelta(seconds=5)))
+        collection.upsert(upsert_key, (doc), UpsertOptions(timeout=DEFAULT_TIMEOUT))
 
         return {
             "configurable": {
@@ -383,4 +388,4 @@ class CouchbaseSaver(BaseCheckpointSaver):
                 "type": type_,
                 "value": serialized_value,
             }
-            collection.upsert(upsert_key, (doc), UpsertOptions(timeout=timedelta(seconds=5)))
+            collection.upsert(upsert_key, doc, UpsertOptions(timeout=DEFAULT_TIMEOUT))
