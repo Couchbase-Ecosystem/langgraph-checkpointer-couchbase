@@ -212,7 +212,7 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
             return CheckpointTuple(
                 {"configurable": config_values},
                 checkpoint,
-                self.serde.loads_typed((doc.get("metadata_type", DEFAULT_METADATA_TYPE), _decode_binary(doc["metadata"]))),
+                self.serde.loads_typed((doc.get("metadata_type", DEFAULT_METADATA_TYPE), _decode_binary(doc["metadata"]))) if doc.get("metadata") else None,
                 (
                     {
                         "configurable": {
@@ -288,7 +288,7 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
                     }
                 },
                 checkpoint,
-                self.serde.loads_typed((doc.get("metadata_type", DEFAULT_METADATA_TYPE), _decode_binary(doc["metadata"]))),
+                self.serde.loads_typed((doc.get("metadata_type", DEFAULT_METADATA_TYPE), _decode_binary(doc["metadata"]))) if doc.get("metadata") else None,
                 (
                     {
                         "configurable": {
