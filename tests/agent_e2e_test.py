@@ -26,11 +26,11 @@ model = ChatOpenAI(model="gpt-5-mini", temperature=0)
 
 def syncTest():
     with CouchbaseSaver.from_conn_info(
-        cb_conn_str=os.getenv("CB_CLUSTER") or "couchbase://localhost",
-        cb_username=os.getenv("CB_USERNAME") or "test",
-        cb_password=os.getenv("CB_PASSWORD") or "Tester@123",
-        bucket_name=os.getenv("CB_BUCKET") or "b1",
-        scope_name=os.getenv("CB_SCOPE") or "s1",
+        cb_conn_str=os.getenv("CB_CLUSTER"),
+        cb_username=os.getenv("CB_USERNAME"),
+        cb_password=os.getenv("CB_PASSWORD"),
+        bucket_name=os.getenv("CB_BUCKET"),
+        scope_name=os.getenv("CB_SCOPE"),
     ) as checkpointer:
         graph = create_agent(
             model,
@@ -53,11 +53,11 @@ def syncTest():
 
 async def asyncTest():
     async with AsyncCouchbaseSaver.from_conn_info(
-        cb_conn_str=os.getenv("CB_CLUSTER") or "couchbase://localhost",
-        cb_username=os.getenv("CB_USERNAME") or "test",
-        cb_password=os.getenv("CB_PASSWORD") or "Tester@123",
-        bucket_name=os.getenv("CB_BUCKET") or "b1",
-        scope_name=os.getenv("CB_SCOPE") or "s1",
+        cb_conn_str=os.getenv("CB_CLUSTER"),
+        cb_username=os.getenv("CB_USERNAME"),
+        cb_password=os.getenv("CB_PASSWORD"),
+        bucket_name=os.getenv("CB_BUCKET"),
+        scope_name=os.getenv("CB_SCOPE"),
     ) as checkpointer:
         graph = create_agent(
             model,
