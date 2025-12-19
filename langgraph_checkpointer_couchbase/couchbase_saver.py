@@ -22,6 +22,11 @@ from langgraph.checkpoint.base import (
 from .utils import _encode_binary, _decode_binary
 
 logger = logging.getLogger(__name__)
+
+# Default timeout for database operations
+DEFAULT_TIMEOUT = timedelta(seconds=5)
+# Default serialization type for metadata (for backward compatibility)
+DEFAULT_METADATA_TYPE = "json"
 class CouchbaseSaver(BaseCheckpointSaver):
     """A checkpoint saver that stores checkpoints in a Couchbase database.
     
@@ -77,11 +82,7 @@ class CouchbaseSaver(BaseCheckpointSaver):
             auth = PasswordAuthenticator(cb_username, cb_password)
             options = ClusterOptions(auth)
             cluster = Cluster(cb_conn_str, options)
-            cluster.wait_until_ready(timedelta(seconds=5))
-            
-            cls.cluster = cluster
-            cls.bucket_name = bucket_name
-            cls.scope_name = scope_name
+            cluster.wait_until_ready(DEFAULT_TIMEOUT)
 
             saver = CouchbaseSaver(cluster, bucket_name, scope_name, checkpoints_collection_name, checkpoint_writes_collection_name)
 
@@ -197,8 +198,8 @@ class CouchbaseSaver(BaseCheckpointSaver):
                     )
 
             # Decode and deserialize metadata
-            metadata = _decode_binary(doc["metadata"])
-            metadata = self.serde.loads(metadata)
+            metadata_data = _decode_binary(doc["metadata"])
+            metadata = self.serde.loads_typed((doc.get("metadata_type", DEFAULT_METADATA_TYPE), metadata_data))
 
             return CheckpointTuple(
                 {"configurable": config_values},
@@ -217,6 +218,8 @@ class CouchbaseSaver(BaseCheckpointSaver):
                 ),
                 pending_writes,
             )
+
+        return None
 
     def list(
             self,
@@ -277,7 +280,7 @@ class CouchbaseSaver(BaseCheckpointSaver):
                     }
                 },
                 checkpoint,
-                self.serde.loads(_decode_binary(doc["metadata"])),
+                self.serde.loads_typed((doc.get("metadata_type", DEFAULT_METADATA_TYPE), _decode_binary(doc["metadata"]))),
                 (
                     {
                         "configurable": {
@@ -322,15 +325,15 @@ class CouchbaseSaver(BaseCheckpointSaver):
             serialized_checkpoint = _encode_binary(serialized_checkpoint)
             
         # Serialize and encode metadata
-        metadata_bytes = self.serde.dumps(metadata)
-        if metadata_bytes:
-            metadata = _encode_binary(metadata_bytes)
+        metadata_type, metadata_bytes = self.serde.dumps_typed(metadata)
+        serialized_metadata = _encode_binary(metadata_bytes) if metadata_bytes else None
         
         doc = {
             "parent_checkpoint_id": config["configurable"].get("checkpoint_id"),
             "type": type_,
             "checkpoint": serialized_checkpoint,
-            "metadata": metadata,
+            "metadata": serialized_metadata,
+            "metadata_type": metadata_type,
             "thread_id" : thread_id,
             "checkpoint_ns": checkpoint_ns,
             "checkpoint_id": checkpoint_id,
@@ -338,7 +341,7 @@ class CouchbaseSaver(BaseCheckpointSaver):
         upsert_key = f"{thread_id}::{checkpoint_ns}::{checkpoint_id}"
         
         collection = self.checkpoints_collection
-        collection.upsert(upsert_key, (doc), UpsertOptions(timeout=timedelta(seconds=5)))
+        collection.upsert(upsert_key, (doc), UpsertOptions(timeout=DEFAULT_TIMEOUT))
 
         return {
             "configurable": {
@@ -387,4 +390,4 @@ class CouchbaseSaver(BaseCheckpointSaver):
                 "type": type_,
                 "value": serialized_value,
             }
-            collection.upsert(upsert_key, (doc), UpsertOptions(timeout=timedelta(seconds=5)))
+            collection.upsert(upsert_key, doc, UpsertOptions(timeout=DEFAULT_TIMEOUT))

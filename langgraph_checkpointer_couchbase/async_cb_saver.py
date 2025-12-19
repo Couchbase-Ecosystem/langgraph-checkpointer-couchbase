@@ -22,6 +22,11 @@ from .utils import _encode_binary, _decode_binary
 
 logger = logging.getLogger(__name__)
 
+# Default timeout for database operations
+DEFAULT_TIMEOUT = timedelta(seconds=5)
+# Default serialization type for metadata (for backward compatibility)
+DEFAULT_METADATA_TYPE = "json"
+
 class AsyncCouchbaseSaver(BaseCheckpointSaver):
     """A checkpoint saver that stores checkpoints in a Couchbase database."""
 
@@ -94,10 +99,6 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
             auth = PasswordAuthenticator(cb_username, cb_password)
             options = ClusterOptions(auth)
             cluster = await ACluster.connect(cb_conn_str, options)
-            
-            cls.cluster = cluster
-            cls.bucket_name = bucket_name
-            cls.scope_name = scope_name
 
             bucket = cluster.bucket(bucket_name)
             await bucket.on_connect()
@@ -211,7 +212,7 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
             return CheckpointTuple(
                 {"configurable": config_values},
                 checkpoint,
-                self.serde.loads(_decode_binary(doc["metadata"])),
+                self.serde.loads_typed((doc.get("metadata_type", DEFAULT_METADATA_TYPE), _decode_binary(doc["metadata"]))) if doc.get("metadata") else None,
                 (
                     {
                         "configurable": {
@@ -225,6 +226,8 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
                 ),
                 pending_writes,
             )
+
+        return None
 
     async def alist(
             self,
@@ -285,7 +288,7 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
                     }
                 },
                 checkpoint,
-                self.serde.loads(_decode_binary(doc["metadata"])),
+                self.serde.loads_typed((doc.get("metadata_type", DEFAULT_METADATA_TYPE), _decode_binary(doc["metadata"]))) if doc.get("metadata") else None,
                 (
                     {
                         "configurable": {
@@ -327,15 +330,16 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
         if serialized_checkpoint:
             serialized_checkpoint = _encode_binary(serialized_checkpoint)
             
-        metadata = self.serde.dumps(metadata)
-        if metadata:
-            metadata = _encode_binary(metadata)
+        # Serialize and encode metadata
+        metadata_type, metadata_bytes = self.serde.dumps_typed(metadata)
+        serialized_metadata = _encode_binary(metadata_bytes) if metadata_bytes else None
         
         doc = {
             "parent_checkpoint_id": config["configurable"].get("checkpoint_id"),
             "type": type_,
             "checkpoint": serialized_checkpoint,
-            "metadata": metadata,
+            "metadata": serialized_metadata,
+            "metadata_type": metadata_type,
             "thread_id" : thread_id,
             "checkpoint_ns": checkpoint_ns,
             "checkpoint_id": checkpoint_id,
@@ -346,7 +350,7 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
         # ensure bucket connected (idempotent)
         await self.bucket.on_connect()
         collection = self.bucket.scope(self.scope_name).collection(self.checkpoints_collection_name)
-        await collection.upsert(upsert_key, (doc), UpsertOptions(timeout=timedelta(seconds=5)))
+        await collection.upsert(upsert_key, (doc), UpsertOptions(timeout=DEFAULT_TIMEOUT))
 
         return {
             "configurable": {
@@ -394,4 +398,4 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
                 "type": type_,
                 "value": serialized_value,
             }
-            await collection.upsert(upsert_key, (doc), UpsertOptions(timeout=timedelta(seconds=5)))
+            await collection.upsert(upsert_key, (doc), UpsertOptions(timeout=DEFAULT_TIMEOUT))
