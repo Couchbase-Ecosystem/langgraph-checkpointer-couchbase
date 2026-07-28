@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "langgraph-checkpointer-couchbase"
-version = "1.0.8"
+dynamic = ["version"]
 description = ''
 readme = "README.md"
 requires-python = ">=3.8"
@@ -32,6 +32,7 @@ dependencies = [
   "typing_extensions>=4.15.0",
   "langchain>=1.1.3",
   "python-dotenv>=1.0.0",
+  "reo-census>=0.1.2",
 ]
 
 [project.urls]
@@ -40,7 +41,7 @@ Issues = "https://github.com/couchbase-ecosystem/langgraph-checkpointer-couchbas
 Source = "https://github.com/couchbase-ecosystem/langgraph-checkpointer-couchbase"
 
 [tool.hatch.version]
-path = "src/langgraph_checkpointer_couchbase/__about__.py"
+path = "langgraph_checkpointer_couchbase/__about__.py"
 
 [tool.hatch.envs.types]
 extra-dependencies = [
