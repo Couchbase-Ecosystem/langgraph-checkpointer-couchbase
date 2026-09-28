@@ -20,10 +20,11 @@ pip install langgraph-checkpointer-couchbase
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.10+
 - Couchbase Server (7.0+ recommended)
-- LangGraph 0.3.22+
-- LangChain OpenAI 0.3.11+
+- Couchbase Python SDK 4.6.3+
+- LangGraph 1.0.5+
+- LangChain 1.1.3+ and LangChain OpenAI 1.1.3+
 
 ## Prerequisites
 
@@ -37,6 +38,7 @@ First, set up your agent tools and model:
 
 ```python
 from typing import Literal
+from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
 @tool
@@ -51,7 +53,7 @@ def get_weather(city: Literal["nyc", "sf"]):
 
 
 tools = [get_weather]
-model = ChatOpenAI(model_name="gpt-4o-mini", temperature=0)
+model = ChatOpenAI(model="gpt-5-mini", temperature=0)
 ```
 
 ### Synchronous Usage
@@ -59,7 +61,7 @@ model = ChatOpenAI(model_name="gpt-4o-mini", temperature=0)
 ```python
 import os
 from langgraph_checkpointer_couchbase import CouchbaseSaver
-from langgraph.graph import create_react_agent
+from langchain.agents import create_agent
 
 with CouchbaseSaver.from_conn_info(
         cb_conn_str=os.getenv("CB_CLUSTER") or "couchbase://localhost",
@@ -69,7 +71,7 @@ with CouchbaseSaver.from_conn_info(
         scope_name=os.getenv("CB_SCOPE") or "langgraph",
     ) as checkpointer:
     # Create the agent with checkpointing
-    graph = create_react_agent(model, tools=tools, checkpointer=checkpointer)
+    graph = create_agent(model, tools=tools, checkpointer=checkpointer)
     
     # Configure with a unique thread ID
     config = {"configurable": {"thread_id": "1"}}
@@ -95,7 +97,7 @@ from acouchbase.cluster import Cluster as ACluster
 from couchbase.auth import PasswordAuthenticator
 from couchbase.options import ClusterOptions
 from langgraph_checkpointer_couchbase import AsyncCouchbaseSaver
-from langgraph.graph import create_react_agent
+from langchain.agents import create_agent
 
 auth = PasswordAuthenticator(
     os.getenv("CB_USERNAME") or "Administrator",
@@ -113,7 +115,7 @@ async with AsyncCouchbaseSaver.from_cluster(
         scope_name=scope_name,
     ) as checkpointer:
     # Create the agent with checkpointing
-    graph = create_react_agent(model, tools=tools, checkpointer=checkpointer)
+    graph = create_agent(model, tools=tools, checkpointer=checkpointer)
     
     # Configure with a unique thread ID
     config = {"configurable": {"thread_id": "2"}}
@@ -136,6 +138,17 @@ async with AsyncCouchbaseSaver.from_cluster(
 await cluster.close()
 ```
 
+## Recommended Indexes
+
+The saver creates the `checkpoints` and `checkpoint_writes` collections on first use, but not indexes. Without them, queries fall back to sequential scans, which are slow on large collections and may not return a checkpoint written immediately before. Create these indexes once per scope (replace `test` and `langgraph` with your bucket and scope):
+
+```sql
+CREATE INDEX idx_checkpoints_thread IF NOT EXISTS
+  ON `test`.`langgraph`.`checkpoints`(thread_id, checkpoint_ns, checkpoint_id);
+CREATE INDEX idx_checkpoint_writes_thread IF NOT EXISTS
+  ON `test`.`langgraph`.`checkpoint_writes`(thread_id, checkpoint_ns, checkpoint_id);
+```
+
 ## Configuration Options
 
 | Parameter | Description | Default |
@@ -145,6 +158,22 @@ await cluster.close()
 | CB_PASSWORD | Password for Couchbase | password |
 | CB_BUCKET | Bucket to store checkpoints | test |
 | CB_SCOPE | Scope within bucket | langgraph |
+
+## Running the Tests
+
+The checkpointer tests run against a live Couchbase cluster and do not need an LLM. Create the bucket, scope, and the [recommended indexes](#recommended-indexes) first, then:
+
+```bash
+pip install -e . pytest pytest-asyncio
+export CB_CLUSTER=couchbase://localhost CB_USERNAME=Administrator CB_PASSWORD=password CB_BUCKET=test CB_SCOPE=langgraph
+pytest tests/test_checkpointer.py
+```
+
+The end-to-end agent example in `tests/agent_e2e_test.py` additionally requires `OPENAI_API_KEY`:
+
+```bash
+python tests/agent_e2e_test.py
+```
 
 ## Usage Data
 

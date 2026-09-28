@@ -1,0 +1,95 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    services:
+      couchbase:
+        image: couchbase:enterprise-7.6.4
+        ports:
+          - 8091-8096:8091-8096
+          - 11210:11210
+    env:
+      CB_CLUSTER: couchbase://localhost
+      CB_USERNAME: Administrator
+      CB_PASSWORD: password
+      CB_BUCKET: test
+      CB_SCOPE: langgraph
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Dependencies
+        run: pip install -e . pytest pytest-asyncio hatch
+
+      - name: Initialize Couchbase
+        env:
+          CB_CONTAINER: ${{ job.services.couchbase.id }}
+        run: |
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:8091/ui/index.html > /dev/null && break
+            sleep 2
+          done
+          cli() { docker exec "$CB_CONTAINER" couchbase-cli "$@" -c localhost; }
+          cli cluster-init --cluster-username "$CB_USERNAME" --cluster-password "$CB_PASSWORD" \
+            --services data,index,query --cluster-ramsize 1024 --cluster-index-ramsize 256
+          cli bucket-create -u "$CB_USERNAME" -p "$CB_PASSWORD" --bucket "$CB_BUCKET" \
+            --bucket-type couchbase --bucket-ramsize 256 --wait
+          cli collection-manage -u "$CB_USERNAME" -p "$CB_PASSWORD" --bucket "$CB_BUCKET" --create-scope "$CB_SCOPE"
+
+      # A freshly initialized node can reject queries for a short while.
+      - name: Wait for Couchbase Query Service
+        shell: python
+        run: |
+          import os, time
+          from langgraph_checkpointer_couchbase import CouchbaseSaver
+
+          deadline = time.time() + 180
+          while True:
+              try:
+                  with CouchbaseSaver.from_conn_info(
+                      cb_conn_str=os.environ["CB_CLUSTER"],
+                      cb_username=os.environ["CB_USERNAME"],
+                      cb_password=os.environ["CB_PASSWORD"],
+                      bucket_name=os.environ["CB_BUCKET"],
+                      scope_name=os.environ["CB_SCOPE"],
+                  ) as saver:
+                      saver.get_tuple({"configurable": {"thread_id": "ci-readiness"}})
+                  print("Couchbase query service is ready")
+                  break
+              except Exception as e:
+                  if time.time() > deadline:
+                      raise
+                  print(f"Waiting for Couchbase: {type(e).__name__}")
+                  time.sleep(3)
+
+      - name: Create Checkpoint Indexes
+        run: |
+          for c in checkpoints checkpoint_writes; do
+            curl -sf -u "$CB_USERNAME:$CB_PASSWORD" http://localhost:8093/query/service \
+              --data-urlencode "statement=CREATE INDEX idx_${c}_thread IF NOT EXISTS ON \`$CB_BUCKET\`.\`$CB_SCOPE\`.\`$c\`(thread_id, checkpoint_ns, checkpoint_id)"
+          done
+
+      - name: Run Tests
+        run: pytest tests/test_checkpointer.py -v
+
+      - name: Hatch build
+        run: hatch build

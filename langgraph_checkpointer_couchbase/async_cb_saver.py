@@ -9,6 +9,7 @@ from acouchbase.bucket import Bucket as ABucket
 from couchbase.auth import PasswordAuthenticator
 from couchbase.options import ClusterOptions, QueryOptions, UpsertOptions
 from couchbase.exceptions import CollectionAlreadyExistsException
+from couchbase.n1ql import QueryScanConsistency
 
 from langgraph.checkpoint.base import (
     BaseCheckpointSaver,
@@ -179,7 +180,7 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
             query = f'SELECT * FROM `{self.bucket_name}`.`{self.scope_name}`.`{self.checkpoints_collection_name}` WHERE thread_id = $1 AND checkpoint_ns = $2 ORDER BY checkpoint_id DESC LIMIT 1'
             query_params = [thread_id, checkpoint_ns]
 
-        result = self.cluster.query(query, QueryOptions(positional_parameters=query_params))
+        result = self.cluster.query(query, QueryOptions(positional_parameters=query_params, scan_consistency=QueryScanConsistency.REQUEST_PLUS))
 
         async for row in result:
             doc = row[self.checkpoints_collection_name]
@@ -193,7 +194,7 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
             serialized_writes_query = f'SELECT * FROM `{self.bucket_name}`.`{self.scope_name}`.`{self.checkpoint_writes_collection_name}` WHERE thread_id = $1 AND checkpoint_ns = $2 AND checkpoint_id = $3'
             serialized_writes_params = [thread_id, checkpoint_ns, doc["checkpoint_id"] or ""]
             
-            serialized_writes_result = self.cluster.query(serialized_writes_query, QueryOptions(positional_parameters=serialized_writes_params))
+            serialized_writes_result = self.cluster.query(serialized_writes_query, QueryOptions(positional_parameters=serialized_writes_params, scan_consistency=QueryScanConsistency.REQUEST_PLUS))
 
             pending_writes = []
             async for write_doc in serialized_writes_result:
@@ -273,7 +274,7 @@ class AsyncCouchbaseSaver(BaseCheckpointSaver):
         if limit is not None:
             query += f" LIMIT {limit}"
 
-        result = self.cluster.query(query, QueryOptions(positional_parameters=query_params))
+        result = self.cluster.query(query, QueryOptions(positional_parameters=query_params, scan_consistency=QueryScanConsistency.REQUEST_PLUS))
 
         async for row in result:
             doc = row[self.checkpoints_collection_name]
