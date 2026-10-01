@@ -89,7 +89,7 @@ jobs:
           done
 
       - name: Run Tests
-        run: pytest tests/test_checkpointer.py -v
+        run: pytest tests/test_checkpointer.py tests/test_python_version_guard.py -v
 
       - name: Hatch build
         run: hatch build
