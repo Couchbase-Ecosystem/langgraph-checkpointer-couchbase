@@ -1,19 +1,43 @@
 name: Publish Package to PyPI
+
+# Publishes the package to PyPI, then publishes the draft GitHub release kept up to date by
+# draft-release.yml. Runs when a maintainer dispatches it on main, or when a v* tag is pushed.
+#
+# PyPI trusted publishing is configured for this exact filename. Renaming it breaks publishing
+# until the trusted publisher on pypi.org is updated.
+
 on:
   push:
     tags:
       - "v*"
   workflow_dispatch:
-  
+
 jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: write
+      # generate-notes reads pull request metadata.
+      pull-requests: read
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v7
+        with:
+          # Full history so the release notes can find the previous v* tag.
+          fetch-depth: 0
+
+      # The release tag comes from __about__.py, never from the ref: a dispatch on main would
+      # otherwise name the release (and create a tag) "main", as happened for v1.0.8.
+      - name: Work out the release tag
+        run: |
+          set -euo pipefail
+          tag="v$(scripts/package-version.sh)"
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "$tag" ]]; then
+            echo "::error::Tag '$GITHUB_REF_NAME' does not match __version__ in __about__.py (expected $tag)"
+            exit 1
+          fi
+          echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -32,10 +56,35 @@ jobs:
       - name: Publish release distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
 
-      - name: Create GitHub Release
-        id: create_release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ github.ref_name }} 
-          draft: false
-          prerelease: false
+      - name: Publish the draft GitHub release, or create the release if there is none
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          prerelease=()
+          # PEP 440 pre-releases: 2.1.0a1, 2.1.0b1, 2.1.0rc1, 2.1.0.dev1.
+          [[ "$version" =~ (a|b|rc|\.dev)[0-9]+ ]] && prerelease=(--prerelease)
+
+          # draft-release.yml keeps a draft for this version up to date on every merge. Publish
+          # that draft rather than regenerating it, so edits made by hand survive. --target only
+          # matters when the tag does not exist yet (a dispatch on main): the tag is then created
+          # on the commit that was just published to PyPI.
+          state="$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null || echo none)"
+          if [[ "$state" == "true" ]]; then
+            echo "Publishing the existing draft for $RELEASE_TAG"
+            gh release edit "$RELEASE_TAG" --draft=false --tag "$RELEASE_TAG" --target "$GITHUB_SHA" \
+              ${prerelease[@]+"${prerelease[@]}"}
+          elif [[ "$state" == "false" ]]; then
+            echo "::notice::$RELEASE_TAG is already published; nothing to do"
+          else
+            echo "No draft found for $RELEASE_TAG; generating notes now"
+            scripts/release-notes.sh "$RELEASE_TAG" "$GITHUB_SHA" > "$RUNNER_TEMP/notes.md"
+            gh release create "$RELEASE_TAG" \
+              --target "$GITHUB_SHA" \
+              --title "$RELEASE_TAG" \
+              --notes-file "$RUNNER_TEMP/notes.md" \
+              ${prerelease[@]+"${prerelease[@]}"}
+          fi
+          gh release view "$RELEASE_TAG" --json url --jq .url >> "$GITHUB_STEP_SUMMARY"

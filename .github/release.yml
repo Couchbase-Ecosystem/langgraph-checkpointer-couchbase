@@ -1,0 +1,22 @@
+# Groups the generated release notes used by draft-release.yml and release.yaml. Each PR goes into
+# the first category whose labels it matches; the final wildcard catches anything unlabelled.
+# Labels are applied by label-pull-requests.yml and documented in AGENTS.md.
+changelog:
+  exclude:
+    labels:
+      - skip-changelog
+  categories:
+    - title: Breaking changes
+      labels: [breaking-change]
+    - title: Features
+      labels: [enhancement]
+    - title: Fixes
+      labels: [bug]
+    - title: Testing and CI
+      labels: [testing, ci]
+    - title: Documentation
+      labels: [documentation]
+    - title: Dependencies
+      labels: [dependencies]
+    - title: Other changes
+      labels: ['*']

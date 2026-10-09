@@ -1,0 +1,34 @@
+# Path-based half of the PR labelling in .github/workflows/label-pull-requests.yml.
+# The labels are documented in AGENTS.md and grouped into release notes by .github/release.yml.
+#
+# Only rules that are true by construction belong here. A path can prove a PR touched the tests;
+# it cannot prove a change to langgraph_checkpointer_couchbase/ is a feature rather than a fix, so
+# `enhancement` and `bug` come from the conventional-commit title (or a human).
+#
+# Labels are added, never removed (`sync-labels: false`), so a maintainer's correction sticks.
+#
+# `ci` means the workflows or release automation changed, not that the PR runs CI.
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/**'
+          - 'scripts/release-notes.sh'
+
+# pyproject.toml is the only dependency manifest (there is no lockfile). An edit that only touches
+# metadata is labelled too; that is the price of a path rule, and a `feat`/`fix` title still files
+# the PR under Features or Fixes first.
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'pyproject.toml'
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '**/*.md'
+
+testing:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'tests/**'

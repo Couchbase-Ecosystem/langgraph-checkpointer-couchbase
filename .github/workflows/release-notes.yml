@@ -1,0 +1,57 @@
+name: Regenerate release notes
+
+# Rewrites the notes of the GitHub release for an existing v* tag from the pull requests merged
+# since the previous v* tag, grouped by .github/release.yml. Use it to backfill a release that was
+# published without notes, or after fixing PR labels. If the tag has no release yet, one is created.
+# Hand edits to the release are replaced.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing v* tag whose release notes to regenerate, e.g. v2.0.0'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  # generate-notes reads pull request metadata.
+  pull-requests: read
+
+jobs:
+  notes:
+    name: Regenerate release notes
+    if: github.repository == 'Couchbase-Ecosystem/langgraph-checkpointer-couchbase'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Full history so the previous v* tag can be found.
+          fetch-depth: 0
+      - name: Regenerate notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ "$RELEASE_TAG" != v* ]] || ! git rev-parse -q --verify "refs/tags/$RELEASE_TAG" >/dev/null; then
+            echo "::error::'$RELEASE_TAG' is not an existing v* tag"
+            exit 1
+          fi
+
+          scripts/release-notes.sh "$RELEASE_TAG" > "$RUNNER_TEMP/notes.md"
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --notes-file "$RUNNER_TEMP/notes.md"
+          else
+            # A backfilled release is usually an old one, so it must not take over "Latest".
+            gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" --latest=false \
+              --notes-file "$RUNNER_TEMP/notes.md"
+          fi
+
+          {
+            echo "### Release notes for \`$RELEASE_TAG\` regenerated"
+            gh release view "$RELEASE_TAG" --json url --jq .url
+          } >> "$GITHUB_STEP_SUMMARY"
