@@ -1,0 +1,84 @@
+name: Draft release
+
+# Keeps a draft GitHub release for the next version up to date on every merge to main, so there
+# is always a view of what the next release contains and notes ready to review before anything is
+# published. release.yaml publishes this draft after the PyPI upload.
+#
+# The draft is regenerated on each run, so edits made to it are overwritten by the next merge.
+# Edit it just before running the release workflow (or edit the published release afterwards).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # Never let two runs race to recreate the same draft.
+  group: draft-release
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  # generate-notes reads pull request metadata.
+  pull-requests: read
+
+jobs:
+  draft:
+    name: Refresh the draft release
+    if: github.repository == 'Couchbase-Ecosystem/langgraph-checkpointer-couchbase'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Full history so the previous v* tag can be found.
+          fetch-depth: 0
+      - name: Refresh draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          released="$(scripts/package-version.sh)"
+          version="$released"
+          # Between releases __about__.py still holds the released version, whose tag already
+          # exists. Draft a placeholder until the version-bump PR lands; the draft then takes the
+          # real name. After a prerelease (2.1.0rc1) the placeholder is its stable version
+          # (2.1.0); after a stable release it is the next patch.
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            version="$(scripts/package-version.sh --next)"
+            echo "::notice::v$released is already tagged; drafting v$version as a placeholder"
+          fi
+          tag="v$version"
+
+          state="$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null || echo none)"
+          if [[ "$state" == "false" ]]; then
+            echo "::notice::$tag is already published; leaving it untouched"
+            exit 0
+          fi
+
+          # Only one untagged draft at a time: remove stale ones, such as the placeholder left
+          # behind once the version-bump PR renames the draft. A draft whose tag has been pushed
+          # is waiting to be published, so it is left alone.
+          gh release list --limit 100 --json tagName,isDraft \
+            --jq '.[] | select(.isDraft and (.tagName | startswith("v"))) | .tagName' |
+            while read -r stale; do
+              if ! git rev-parse -q --verify "refs/tags/$stale" >/dev/null; then
+                gh release delete "$stale" --yes
+              fi
+            done
+
+          scripts/release-notes.sh "$tag" HEAD > "$RUNNER_TEMP/notes.md"
+
+          # No --target: the draft tracks the default branch. release.yaml sets the target to the
+          # released commit when it publishes the draft.
+          gh release create "$tag" \
+            --draft \
+            --title "v$version" \
+            --notes-file "$RUNNER_TEMP/notes.md"
+
+          {
+            echo "### Draft release \`$tag\` refreshed"
+            gh release view "$tag" --json url --jq .url
+          } >> "$GITHUB_STEP_SUMMARY"

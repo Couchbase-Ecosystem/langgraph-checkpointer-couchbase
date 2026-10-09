@@ -10,9 +10,33 @@
 Maintainers release this package in two steps:
 
 1. A PR bumps `__version__` in `langgraph_checkpointer_couchbase/__about__.py`.
-2. After that PR merges, a maintainer runs the **Publish Package to PyPI** workflow (`.github/workflows/release.yaml`) from the Actions tab on `main`. It builds with hatch, publishes to PyPI, and creates a GitHub release. Pushing a `v*` tag also triggers it.
+2. After that PR merges, a maintainer runs the **Publish Package to PyPI** workflow (`.github/workflows/release.yaml`) from the Actions tab on `main`. It builds with hatch, publishes to PyPI, then publishes the draft GitHub release `v<__version__>` (creating the tag on the released commit). Pushing a `v*` tag also triggers it; the tag must match `__version__`.
 
-Agents prepare step 1 only. Do not create tags or releases, and do not dispatch the release workflow.
+Agents prepare step 1 only. Do not create tags or releases, and do not dispatch the release or release-notes workflows.
+
+### Release notes
+
+| Piece | What it does |
+| --- | --- |
+| `.github/workflows/draft-release.yml` | On every push to `main`, regenerates a draft GitHub release for the next version. If `__version__` is already tagged, the draft is named after a placeholder (the next patch, or the stable version after a pre-release) until the version-bump PR merges. Hand edits to the draft are overwritten on the next merge, so edit it just before releasing. |
+| `.github/workflows/release.yaml` | Publishes the draft after the PyPI upload, keeping any hand edits. If there is no draft, it creates the release with generated notes. |
+| `.github/workflows/release-notes.yml` | Run by hand with an existing `v*` tag to regenerate that release's notes, for example to backfill a release published without notes or after fixing PR labels. It replaces hand edits. |
+| `scripts/release-notes.sh` | Builds the notes: GitHub's generated notes for the PRs merged since the previous `v*` tag. `scripts/package-version.sh` reads `__version__`. |
+| `.github/release.yml` | Groups the notes by PR label. PRs labelled `skip-changelog` are left out; unlabelled PRs go under "Other changes". |
+| `.github/workflows/label-pull-requests.yml` | Labels PRs from their conventional-commit title and changed paths (`.github/labeler.yml`). It only adds labels, so a label corrected by hand stays. |
+
+| Label | Use for | Applied automatically from |
+| --- | --- | --- |
+| `breaking-change` | Public API, supported Python, or dependency changes users must act on | `!` in the title or a `BREAKING CHANGE:` footer |
+| `enhancement` | New functionality | `feat:` title |
+| `bug` | Fixes | `fix:` title |
+| `testing` | Test suite changes | `test:` title, `tests/**` |
+| `ci` | Workflows and release automation | `ci:`/`build:` title, `.github/**`, `scripts/release-notes.sh` |
+| `documentation` | Documentation only | `docs:` title, `*.md` |
+| `dependencies` | Dependency updates | `deps:` title or a `deps` scope, `pyproject.toml` |
+| `skip-changelog` | Chores that should not appear in the notes | `(release)` scope |
+
+The path rules are read from the base branch, so a change to `.github/labeler.yml` only applies to PR events after it is merged.
 
 ### Version bumps in dependency upgrade PRs
 
