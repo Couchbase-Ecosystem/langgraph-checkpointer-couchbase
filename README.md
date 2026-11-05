@@ -22,7 +22,7 @@ pip install langgraph-checkpointer-couchbase
 
 - Python 3.10+
 - Couchbase Server (7.0+ recommended)
-- Couchbase Python SDK 4.6.3+
+- Couchbase Python SDK 4.6.4+
 - LangGraph 1.0.5+
 - LangChain 1.1.3+ and LangChain OpenAI 1.1.3+
 
