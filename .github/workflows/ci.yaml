@@ -15,10 +15,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        couchbase-version: ["enterprise-7.6.12", "enterprise-8.0.3"]
+    name: test (py${{ matrix.python-version }}, ${{ matrix.couchbase-version }})
     services:
       couchbase:
-        image: couchbase:enterprise-7.6.4
+        image: couchbase:${{ matrix.couchbase-version }}
         ports:
           - 8091-8096:8091-8096
           - 11210:11210
