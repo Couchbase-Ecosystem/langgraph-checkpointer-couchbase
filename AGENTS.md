@@ -1,8 +1,9 @@
 # Agent Notes
 
 - Packaging uses hatch/pip (`pyproject.toml`, `hatchling`). Do not add a lockfile or switch package managers.
-- PR validation is `.github/workflows/ci.yaml`: it starts a Couchbase container, creates the bucket/scope, creates the recommended indexes, runs `pytest tests/test_checkpointer.py`, then `hatch build`.
+- PR validation is `.github/workflows/ci.yaml`: it starts a Couchbase container, creates the bucket/scope, creates the recommended indexes, runs `pytest tests/test_documents.py tests/test_checkpointer.py`, then `hatch build`.
 - Local validation needs a Couchbase cluster with an existing bucket and scope (see "Running the Tests" in `README.md`). The saver creates its own collections but not indexes; without the README indexes, sequential-scan reads can miss just-written checkpoints and tests flake.
+- `CouchbaseSaver` (sync) and `AsyncCouchbaseSaver` (async) are thin I/O adapters. Document keys, document fields, SQL++ statements, and row decoding live in `langgraph_checkpointer_couchbase/_documents.py`; change them there so both savers stay in step, and cover changes in `tests/test_documents.py` (no cluster needed). The stored layout is persisted user data: keep reads compatible with documents written by earlier releases.
 - `tests/agent_e2e_test.py` is the README agent flow and needs `OPENAI_API_KEY`; it is not run in CI.
 
 ## Release Process

@@ -169,6 +169,12 @@ export CB_CLUSTER=couchbase://localhost CB_USERNAME=Administrator CB_PASSWORD=pa
 pytest tests/test_checkpointer.py
 ```
 
+`tests/test_documents.py` covers the document and query layout shared by both savers and runs without a cluster:
+
+```bash
+pytest tests/test_documents.py
+```
+
 The end-to-end agent example in `tests/agent_e2e_test.py` additionally requires `OPENAI_API_KEY`:
 
 ```bash

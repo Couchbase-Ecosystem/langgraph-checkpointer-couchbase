@@ -17,17 +17,15 @@ from langgraph.checkpoint.base import (
     Checkpoint,
     CheckpointMetadata,
     CheckpointTuple,
-    get_checkpoint_id,
 )
 
-from .utils import _encode_binary, _decode_binary
+from . import _documents as documents
+from ._documents import DEFAULT_METADATA_TYPE  # noqa: F401  (kept importable from this module)
 
 logger = logging.getLogger(__name__)
 
 # Default timeout for database operations
 DEFAULT_TIMEOUT = timedelta(seconds=5)
-# Default serialization type for metadata (for backward compatibility)
-DEFAULT_METADATA_TYPE = "json"
 class CouchbaseSaver(BaseCheckpointSaver):
     """A checkpoint saver that stores checkpoints in a Couchbase database.
     
@@ -138,6 +136,12 @@ class CouchbaseSaver(BaseCheckpointSaver):
         finally:
             self.checkpoint_writes_collection = self.bucket.scope(self.scope_name).collection(self.checkpoint_writes_collection_name)
 
+    def _query(self, statement: str, params: list):
+        return self.cluster.query(
+            statement,
+            QueryOptions(positional_parameters=params, scan_consistency=QueryScanConsistency.REQUEST_PLUS),
+        )
+
     def get_tuple(self, config: RunnableConfig) -> Optional[CheckpointTuple]:
         """Get a checkpoint tuple from the database.
 
@@ -152,73 +156,24 @@ class CouchbaseSaver(BaseCheckpointSaver):
         Returns:
             Optional[CheckpointTuple]: The retrieved checkpoint tuple, or None if no matching checkpoint was found.
         """
-        
-        thread_id = config["configurable"]["thread_id"]
-        checkpoint_ns = config["configurable"].get("checkpoint_ns", "")
-        checkpoint_id = get_checkpoint_id(config)
-
-        if checkpoint_id:
-            query = f'SELECT * FROM `{self.bucket_name}`.`{self.scope_name}`.`{self.checkpoints_collection_name}` WHERE thread_id = $1 AND checkpoint_ns = $2 AND checkpoint_id = $3 ORDER BY checkpoint_id DESC LIMIT 1'
-            query_params = [thread_id, checkpoint_ns, checkpoint_id]
-        else:
-            query = f'SELECT * FROM `{self.bucket_name}`.`{self.scope_name}`.`{self.checkpoints_collection_name}` WHERE thread_id = $1 AND checkpoint_ns = $2 ORDER BY checkpoint_id DESC LIMIT 1'
-            query_params = [thread_id, checkpoint_ns]
-
-        result = self.cluster.query(query, QueryOptions(positional_parameters=query_params, scan_consistency=QueryScanConsistency.REQUEST_PLUS))
-
-        for row in result:
+        for row in self._query(*documents.get_checkpoint_query(
+            config, self.bucket_name, self.scope_name, self.checkpoints_collection_name
+        )):
             doc = row[self.checkpoints_collection_name]
-            config_values = {
-                "thread_id": thread_id,
-                "checkpoint_ns": checkpoint_ns,
-                "checkpoint_id": doc["checkpoint_id"],
-            }
-            
-            # Decode and deserialize checkpoint data
-            checkpoint_data = _decode_binary(doc["checkpoint"])
-            checkpoint = self.serde.loads_typed((doc["type"], checkpoint_data))
-
-            serialized_writes_query = f'SELECT * FROM `{self.bucket_name}`.`{self.scope_name}`.`{self.checkpoint_writes_collection_name}` WHERE thread_id = $1 AND checkpoint_ns = $2 AND checkpoint_id = $3'
-            serialized_writes_params = [thread_id, checkpoint_ns, doc["checkpoint_id"] or ""]
-            serialized_writes_result = self.cluster.query(serialized_writes_query, QueryOptions(positional_parameters=serialized_writes_params, scan_consistency=QueryScanConsistency.REQUEST_PLUS))
 
             pending_writes = []
-            for write_doc in serialized_writes_result:
-                checkpoint_writes = write_doc.get(self.checkpoint_writes_collection_name, {})
-                if "task_id" not in checkpoint_writes:
+            for write_row in self._query(*documents.pending_writes_query(
+                doc, self.bucket_name, self.scope_name, self.checkpoint_writes_collection_name
+            )):
+                write = documents.pending_write_from_document(
+                    self.serde, write_row.get(self.checkpoint_writes_collection_name, {})
+                )
+                if write is None:
                     logger.warning("'task_id' is not present in checkpoint_writes")
                 else:
-                    # Decode and deserialize value data
-                    value_data = _decode_binary(checkpoint_writes["value"])
-                    pending_writes.append(
-                        (
-                            checkpoint_writes["task_id"],
-                            checkpoint_writes["channel"],
-                            self.serde.loads_typed((checkpoint_writes["type"], value_data)),
-                        )
-                    )
+                    pending_writes.append(write)
 
-            # Decode and deserialize metadata
-            metadata_data = _decode_binary(doc["metadata"])
-            metadata = self.serde.loads_typed((doc.get("metadata_type", DEFAULT_METADATA_TYPE), metadata_data))
-
-            return CheckpointTuple(
-                {"configurable": config_values},
-                checkpoint,
-                metadata,
-                (
-                    {
-                        "configurable": {
-                            "thread_id": thread_id,
-                            "checkpoint_ns": checkpoint_ns,
-                            "checkpoint_id": doc["parent_checkpoint_id"],
-                        }
-                    }
-                    if doc.get("parent_checkpoint_id")
-                    else None
-                ),
-                pending_writes,
-            )
+            return documents.checkpoint_tuple_from_document(self.serde, doc, pending_writes)
 
         return None
 
@@ -244,56 +199,11 @@ class CouchbaseSaver(BaseCheckpointSaver):
         Yields:
             Iterator[CheckpointTuple]: An iterator of checkpoint tuples.
         """
-
-        query = f"SELECT * FROM `{self.bucket_name}`.`{self.scope_name}`.`{self.checkpoints_collection_name}` WHERE 1=1"
-        query_params = []
-
-        if config is not None:
-            query += " AND thread_id = $1 AND checkpoint_ns = $2"
-            query_params.extend([config["configurable"]["thread_id"], config["configurable"].get("checkpoint_ns", "")])
-
-        if filter:
-            for key, value in filter.items():
-                query += f" AND metadata.{key} = ${len(query_params) + 1}"
-                query_params.append(value)
-
-        if before is not None:
-            query += f" AND checkpoint_id < ${len(query_params) + 1}"
-            query_params.append(before["configurable"]["checkpoint_id"])
-
-        query += " ORDER BY checkpoint_id DESC"
-
-        if limit is not None:
-            query += f" LIMIT {limit}"
-
-        result = self.cluster.query(query, QueryOptions(positional_parameters=query_params, scan_consistency=QueryScanConsistency.REQUEST_PLUS))
-
-        for row in result:
-            doc = row[self.checkpoints_collection_name]
-            checkpoint_data = _decode_binary(doc["checkpoint"])
-            checkpoint = self.serde.loads_typed((doc["type"], checkpoint_data))
-            yield CheckpointTuple(
-                {
-                    "configurable": {
-                        "thread_id": doc["thread_id"],
-                        "checkpoint_ns": doc["checkpoint_ns"],
-                        "checkpoint_id": doc["checkpoint_id"],
-                    }
-                },
-                checkpoint,
-                self.serde.loads_typed((doc.get("metadata_type", DEFAULT_METADATA_TYPE), _decode_binary(doc["metadata"]))),
-                (
-                    {
-                        "configurable": {
-                            "thread_id": doc["thread_id"],
-                            "checkpoint_ns": doc["checkpoint_ns"],
-                            "checkpoint_id": doc["parent_checkpoint_id"],
-                        }
-                    }
-                    if doc.get("parent_checkpoint_id")
-                    else None
-                ),
-            )
+        for row in self._query(*documents.list_checkpoints_query(
+            config, self.bucket_name, self.scope_name, self.checkpoints_collection_name,
+            filter=filter, before=before, limit=limit,
+        )):
+            yield documents.checkpoint_tuple_from_document(self.serde, row[self.checkpoints_collection_name])
 
     def put(
             self,
@@ -316,41 +226,9 @@ class CouchbaseSaver(BaseCheckpointSaver):
         Returns:
             RunnableConfig: Updated configuration after storing the checkpoint.
         """
-        thread_id = config["configurable"]["thread_id"]
-        checkpoint_ns = config["configurable"]["checkpoint_ns"]
-        checkpoint_id = checkpoint["id"]
-        
-        # Serialize and encode checkpoint data
-        type_, serialized_checkpoint = self.serde.dumps_typed(checkpoint)
-        if serialized_checkpoint:
-            serialized_checkpoint = _encode_binary(serialized_checkpoint)
-            
-        # Serialize and encode metadata
-        metadata_type, metadata_bytes = self.serde.dumps_typed(metadata)
-        serialized_metadata = _encode_binary(metadata_bytes) if metadata_bytes else None
-        
-        doc = {
-            "parent_checkpoint_id": config["configurable"].get("checkpoint_id"),
-            "type": type_,
-            "checkpoint": serialized_checkpoint,
-            "metadata": serialized_metadata,
-            "metadata_type": metadata_type,
-            "thread_id" : thread_id,
-            "checkpoint_ns": checkpoint_ns,
-            "checkpoint_id": checkpoint_id,
-        }
-        upsert_key = f"{thread_id}::{checkpoint_ns}::{checkpoint_id}"
-        
-        collection = self.checkpoints_collection
-        collection.upsert(upsert_key, (doc), UpsertOptions(timeout=DEFAULT_TIMEOUT))
-
-        return {
-            "configurable": {
-                "thread_id": thread_id,
-                "checkpoint_ns": checkpoint_ns,
-                "checkpoint_id": checkpoint_id,
-            }
-        }
+        key, doc, next_config = documents.checkpoint_document(self.serde, config, checkpoint, metadata)
+        self.checkpoints_collection.upsert(key, doc, UpsertOptions(timeout=DEFAULT_TIMEOUT))
+        return next_config
 
     def put_writes(
             self,
@@ -367,28 +245,5 @@ class CouchbaseSaver(BaseCheckpointSaver):
             writes (Sequence[Tuple[str, Any]]): List of writes to store, each as (channel, value) pair.
             task_id (str): Identifier for the task creating the writes.
         """
-        thread_id = config["configurable"]["thread_id"]
-        checkpoint_ns = config["configurable"]["checkpoint_ns"]
-        checkpoint_id = config["configurable"]["checkpoint_id"]
-
-        collection = self.checkpoint_writes_collection
-
-        for idx, (channel, value) in enumerate(writes):
-            upsert_key = f"{thread_id}::{checkpoint_ns}::{checkpoint_id}::{task_id}::{idx}"
-            type_, serialized_value = self.serde.dumps_typed(value)
-            
-            # Encode the serialized value to base64 string
-           
-            serialized_value = _encode_binary(serialized_value)
-
-            doc = {
-                "thread_id": thread_id,
-                "checkpoint_ns": checkpoint_ns,
-                "checkpoint_id": checkpoint_id,
-                "task_id": task_id,
-                "idx": idx,
-                "channel": channel,
-                "type": type_,
-                "value": serialized_value,
-            }
-            collection.upsert(upsert_key, doc, UpsertOptions(timeout=DEFAULT_TIMEOUT))
+        for key, doc in documents.write_documents(self.serde, config, writes, task_id):
+            self.checkpoint_writes_collection.upsert(key, doc, UpsertOptions(timeout=DEFAULT_TIMEOUT))
